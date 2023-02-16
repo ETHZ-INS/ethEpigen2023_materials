@@ -17,7 +17,7 @@ For questions/communication, use the [slack workspace](https://ethEpigen2023.sla
 | 5  | 24/03 | Functional elements & the histone code                                   | Visualization and exploration of histone modifications              |
 | 6  | 31/03 | Types of transcriptional regulators, modes and dynamics of their binding | Motif analysis                                                      |
 | 7  | 07/04 | DNA accessibility, nucleosome positioning, and TF footprints             | Analysis and exploration of ATAC-seq data                           |
-| 8  | 14/04 | Differential analysis                                                    | Differential analysis, motif analysis                                               |
+| 8  | 14/04 | Differential analysis                                                    | Differential analysis   |
 | 9  | 21/04 | Normalization and enrichment analysis                                    | Normalization and enrichment analysis                               |
 | 10 | 28/04 | From repression to expression and back                                   | Clustering genomic signals and characterizing the clusters          |
 | 11 | 05/05 | DNA methylation and CpG islands                                          | DNAme visualization                                                 |
