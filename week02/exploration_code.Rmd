@@ -1,0 +1,86 @@
+---
+title: "Week2: playing with annotations"
+author: "Pierre-Luc"
+date: "3/4/2023"
+output: html_document
+---
+
+```{r}
+suppressPackageStartupMessages({
+  library(AnnotationHub)
+  library(ensembldb)
+  library(GenomicRanges)
+  library(epiwraps)
+})
+```
+
+# Fetch the drosophila gene annotation
+
+```{r}
+ah <- AnnotationHub()
+# to query the AH programmatically:
+q <- query(ah, c("Drosophila", "ensembl"))
+# to browse the AnnotationHub interactively:
+#display(ah)
+
+ensdb <- ah[["AH95713"]]
+ensdb
+```
+
+```{r}
+# from the `ensembldb` package
+# genes(ensdb)
+# extract transcripts:
+txs <- transcripts(ensdb)
+txs
+seqlevels(txs)
+head(txs$tx_biotype)
+head(txs[,"tx_biotype"])
+table(seqnames(txs))
+table(txs$tx_biotype)
+
+# supportedFilters(), tx_biotype
+
+exs <- exons(ensdb, column=c("tx_id"))
+exs
+
+# same as "exons()" but returning the exons split by transcripts
+exsPerTx <- exonsBy(ensdb, column=c("tx_id","tx_biotype"))
+# we limit ourselves to protein-coding transcripts:
+exsPerTx <- exonsBy(ensdb, column=c("tx_id","tx_biotype"), 
+                    filter=TxBiotypeFilter("protein_coding"))
+exsPerTx
+
+# what are the transcripts that have more than on exon / sub-element:
+head(which(lengths(exsPerTx)>1))
+
+exsPerTx[["FBtr0005088"]]
+```
+
+How many transcripts do protein-coding genes have?
+
+```{r}
+nbExonsPerPCtx <- lengths(exsPerTx)
+hist(nbExonsPerPCtx)
+```
+
+Selecting transcripts from one chromosome:
+
+```{r}
+txs_2L <- txs[seqnames(txs)=="2L"] 
+```
+
+Example of overlapping GRanges objects:
+
+```{r}
+# we create a new GRanges
+gr <- GRanges(c("2L","2L"), IRanges(start=c(14615552, 14616303), end=c(14615552+10, 14616303+20)))
+gr
+# how many transcripts of 2L overlap with my `gr` object?
+table(overlapsAny(txs_2L, gr, minoverlap=1, type="any"))
+# sum(countOverlaps(txs_2L, gr, minoverlap=1, type="any")) => slightly different result because some transcripts overlap more than once: txs_2L[countOverlaps(txs_2L, gr, minoverlap=1, type="any")==2]
+nearest(gr, txs_2L)
+txs_2L[4800]
+txs_2L[4803]
+```
+
