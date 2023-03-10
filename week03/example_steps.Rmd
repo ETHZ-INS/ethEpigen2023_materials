@@ -26,9 +26,10 @@ of the factor Myc across the Kc167 Drosophila cell line.
 We download the data from ENCODE:
 
 ```{r, eval=FALSE}
+options(timeout=3600) # we need to increase the download timeout since the file is large and cnx slow
 dir.create("raw")
-download.file("https://www.encodeproject.org/files/ENCFF014MOQ/@@download/ENCFF014MOQ.fastq.gz", dest="raw/Myc.fastq.gz")
-download.file("https://www.encodeproject.org/files/ENCFF179TMO/@@download/ENCFF179TMO.fastq.gz", dest="raw/input.fastq.gz")
+download.file("https://www.encodeproject.org/files/ENCFF014MOQ/@@download/ENCFF014MOQ.fastq.gz", dest="raw/Myc.fastq.gz", mode = "wb")
+download.file("https://www.encodeproject.org/files/ENCFF179TMO/@@download/ENCFF179TMO.fastq.gz", dest="raw/input.fastq.gz", mode="wb")
 ```
 
 (Downloads have a timeout, so if your connection is slow or you're downloading a large file, you might need to change that, using for instance `options(timeout=600)`)
@@ -56,7 +57,8 @@ multiqc -o raw_fastqc raw_fastqc
 ```{bash engine.opts='-l', eval=FALSE}
 mkdir -p trimmed
 # this would be for a single sample:
-trimmomatic SE -threads 4 -summary trimmed/Myc.stats -phred33 raw/Myc.fastq.gz trimmed/Myc.fastq.gz ILLUMINACLIP:TruSeq3-SE:2:15:4:4:true LEADING:20 TRAILING:20 SLIDINGWINDOW:4:15 MINLEN:25
+trimmomatic SE -threads 4 -summary trimmed/Myc.stats -phred33 raw/Myc.fastq.gz trimmed/Myc.fastq.gz \
+ILLUMINACLIP:TruSeq3-SE:2:15:4:4:true LEADING:20 TRAILING:20 SLIDINGWINDOW:4:15 MINLEN:25
 trimmomatic SE -threads 4 -summary trimmed/input.stats -phred33 raw/input.fastq.gz trimmed/input.fastq.gz ILLUMINACLIP:TruSeq3-SE:2:15:4:4:true LEADING:20 TRAILING:20 SLIDINGWINDOW:4:15 MINLEN:25
 ```
 
@@ -147,7 +149,7 @@ We can then import the peaks in R:
 
 ```{r}
 peaks <- rtracklayer::import("peaks/Myc_peaks.narrowPeak")
-source("peaks/Myc_model.r")
+peaks
 ```
 
 
@@ -159,5 +161,11 @@ This alternative is currently still very beta when it comes to using the input c
 peaks <- callPeaks("aligned/Myc.bam", fragLength=50L)
 # if we want to save it as a bed file:
 rtracklayer::export.bed(peaks, "peaks/peaks.bed")
+```
+
+```{r}
+head(peaks)
+region <- as.character(granges(peaks[1]))
+plotSignalTracks(c(Myc="aligned/Myc.bam", Input="aligned/input.bam"), region=region)
 ```
 
