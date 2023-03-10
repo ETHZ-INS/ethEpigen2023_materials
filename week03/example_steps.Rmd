@@ -1,0 +1,163 @@
+---
+title: "Example ChIP-seq analysis"
+author: "Pierre-Luc"
+date: "3/10/2022"
+output: html_document
+---
+
+```{r}
+suppressPackageStartupMessages({
+  library(AnnotationHub)
+  library(Rsubread)
+  library(rtracklayer)
+  library(Biostrings)
+  library(Rfastp)
+  library(epiwraps)
+})
+ah <- AnnotationHub()
+```
+
+We will perform the primary analysis of an example dataset, at each step demonstrating the use of both a very standard pipeline, and a full R-based equivalent. Pay attention to which chunks are R or bash code (see header)
+
+# Downloading the raw reads
+
+We download an example dataset which is a ChIP-seq experiment mapping the bindings
+of the factor Myc across the Kc167 Drosophila cell line.
+We download the data from ENCODE:
+
+```{r, eval=FALSE}
+dir.create("raw")
+download.file("https://www.encodeproject.org/files/ENCFF014MOQ/@@download/ENCFF014MOQ.fastq.gz", dest="raw/Myc.fastq.gz")
+download.file("https://www.encodeproject.org/files/ENCFF179TMO/@@download/ENCFF179TMO.fastq.gz", dest="raw/input.fastq.gz")
+```
+
+(Downloads have a timeout, so if your connection is slow or you're downloading a large file, you might need to change that, using for instance `options(timeout=600)`)
+
+# Reads QC and trimming
+
+## Using fastqc 
+
+For this we will use shell commands:
+
+```{bash engine.opts='-l', eval=FALSE}
+mkdir -p raw_fastqc
+fastqc -o raw_fastqc --threads 4 raw/*.fastq.gz
+```
+
+This will create an html report with QC plots for each file. We could optionally aggregate those using multiQC:
+
+```{bash engine.opts='-l', eval=FALSE}
+multiqc -o raw_fastqc raw_fastqc
+```
+
+
+### Trimming
+
+```{bash engine.opts='-l', eval=FALSE}
+mkdir -p trimmed
+# this would be for a single sample:
+trimmomatic SE -threads 4 -summary trimmed/Myc.stats -phred33 raw/Myc.fastq.gz trimmed/Myc.fastq.gz ILLUMINACLIP:TruSeq3-SE:2:15:4:4:true LEADING:20 TRAILING:20 SLIDINGWINDOW:4:15 MINLEN:25
+trimmomatic SE -threads 4 -summary trimmed/input.stats -phred33 raw/input.fastq.gz trimmed/input.fastq.gz ILLUMINACLIP:TruSeq3-SE:2:15:4:4:true LEADING:20 TRAILING:20 SLIDINGWINDOW:4:15 MINLEN:25
+```
+
+## Using Rfastp
+
+```{r}
+dir.create("rfastp.trimmed")
+qc <- lapply(c(Myc="raw/Myc.fastq.gz", input="raw/input.fastq.gz"), FUN=function(x){
+  Rfastp::rfastp(x, thread=4, overrepresentationAnalysis=TRUE,
+                 outputFastq=file.path("rfastp.trimmed/",gsub("\\.fastq\\.gz$","",basename(x))))
+})
+```
+
+This will create an html report with before/after QC plots, as well as a trimmed
+and filtered fastq file. Furthermore, the R output object (equivalent to the .json 
+stats also saved by the program) can be used to generate the QC plots inside a
+markdown, for example:
+
+```{r}
+Rfastp::curvePlot(qc$Myc, curve="content_curves")
+```
+
+
+# Alignment
+
+## Using Rsubread
+
+### Building a genome index for mapping
+
+This we have to do only once for a genome, and can then re-use across projects
+
+```{r, eval=FALSE}
+# we get the genome sequence from AnnotationHub
+genome <- ah[["AH49674"]]
+# we create a new directory that will contain the genome index
+dir.create("BDGP6_genome")
+# we write the genome sequence in fasta format
+export(import.2bit(genome), "BDGP6_genome/genome.fasta.gz", compress=TRUE)
+# we build a Rsubread index
+Rsubread::buildindex("BDGP6_genome/rsubread", reference="BDGP6_genome/genome.fasta.gz")
+```
+
+### Alignment
+
+```{r}
+dir.create("aligned")
+align.stats <- Rsubread::align(index="BDGP6_genome/rsubread", type="dna",
+                               readfile1=c("rfastp.trimmed/Myc_R1.fastq.gz", 
+                                           "rfastp.trimmed/input_R1.fastq.gz"),
+                               output_file=c("aligned/Myc.bam","aligned/input.bam"),
+                               nthreads=6, sortReadsByCoordinates=TRUE)
+align.stats
+```
+
+
+## Using bowtie2
+
+### Building a bowtie2 index
+
+```{bash engine.opts='-l'}
+# bowtie2-build [options] path/to/genome.fasta path/to/outputIndex
+bowtie2-build --threads 4 BDGP6_genome/genome.fasta.gz BDGP6_genome/bowtie2
+```
+
+### Alignment
+
+```{bash engine.opts='-l'}
+mkdir -p aligned
+(bowtie2 -p 4 -x BDGP6_genome/bowtie2 -U trimmed/Myc.fastq.gz) 2> aligned/Myc.bowtie2 |\
+  samtools view -bS - | samtools sort -@4 -m 2G - > aligned/Myc.bam
+samtools index aligned/Myc.bam
+(bowtie2 -p 4 -x BDGP6_genome/bowtie2 -U trimmed/input.fastq.gz) 2> aligned/input.bowtie2 |\
+  samtools view -bS - | samtools sort -@4 -m 2G - > aligned/input.bam
+samtools index aligned/input.bam
+```
+
+# Peak calling
+
+## Using MACS2
+
+```{bash engine.opts='-l'}
+mkdir -p peaks
+macs2 callpeak --outdir peaks -n Myc --gsize dm -t aligned/Myc.bam -c aligned/input.bam
+# macs3 works in the same way
+```
+
+We can then import the peaks in R:
+
+```{r}
+peaks <- rtracklayer::import("peaks/Myc_peaks.narrowPeak")
+source("peaks/Myc_model.r")
+```
+
+
+## Using R
+
+This alternative is currently still very beta when it comes to using the input control, so here we will do without it. For the purpose of this course, this is offered as an alternative for windows users who can't install MACS2/3:
+
+```{r}
+peaks <- callPeaks("aligned/Myc.bam", fragLength=50L)
+# if we want to save it as a bed file:
+rtracklayer::export.bed(peaks, "peaks/peaks.bed")
+```
+
