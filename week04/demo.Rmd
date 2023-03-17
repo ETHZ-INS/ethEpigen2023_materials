@@ -1,0 +1,167 @@
+---
+title: "Exploration of processed ChIP-seq data"
+author: "Pierre-Luc"
+output: html_document
+---
+
+```{r}
+suppressPackageStartupMessages({
+  library(AnnotationHub)
+  library(rtracklayer)
+  library(epiwraps)
+  library(GenomicRanges)
+})
+ah <- AnnotationHub()
+```
+
+
+# Downloading the processed data
+
+We will follow-up on what we did last week, starting with already aligned reads and peaks.
+To improve speed and so on, we'll work with a subset of the data on the chromosome 2L.
+
+You can download this data like this:
+
+```{r, eval=FALSE}
+download.file("https://ethz-ins.org/content/Myc_dm_subset.zip", "Myc_dm_subset.zip")
+unzip("Myc_dm_subset.zip")
+```
+
+
+# Visualizing a single region
+
+```{r}
+peaks <- rtracklayer::import("peaks/Myc_peaks.narrowPeak")
+head(peaks)
+peaks[1]
+plotSignalTracks( files=list(Myc="aligned/Myc.bam", Input="aligned/input.bam", peaks=peaks), region=peaks[1], extend=2000)
+```
+
+
+# Generating coverage tracks
+
+Again here I'm providing two ways of doing this, first the non-R version that's the most widely used, and then a R-based version, both of which should be equivalent.
+
+## Using DeepTools
+
+
+```{bash engine.opts='-l', eval=FALSE}
+mkdir -p tracks
+for bamfile in aligned/*.bam; do
+  bamCoverage -p 4 --binSize 20 --normalizeUsing CPM -b $bamfile -o tracks/`basename $bamfile .bam`.bw
+done
+```
+
+
+## Using R
+
+In this example I'll showcase the binning by generating two tracks (i.e. bigwigs) for the IP:
+
+```{r}
+dir.create("tracks")
+epiwraps::bam2bw("aligned/Myc.bam", "tracks/Myc_full.bw", binWidth=1, extend=100, scaling=TRUE)
+epiwraps::bam2bw("aligned/Myc.bam", "tracks/Myc.bw", binWidth=20, extend=100, scaling=TRUE)
+epiwraps::bam2bw("aligned/input.bam", "tracks/input.bw", binWidth=20, extend=100, scaling=TRUE)
+```
+
+
+
+
+# Looking at an example peak
+
+Just to compare binning vs not:
+
+```{r}
+tracks <- list(Myc_binWidth1="tracks/Myc_full.bw", Myc_binWidth20="tracks/Myc.bw", peaks=peaks)
+plotSignalTracks( files=tracks, region=peaks[1], extend=200)
+```
+```{r}
+tracks <- list(Myc="tracks/Myc_full.bw", Input="tracks/input.bw", peaks=peaks)
+plotSignalTracks( files=tracks, region=peaks[1], extend=1000)
+plotSignalTracks( files=tracks, region=peaks[1], extend=1000, tracks.params = list(ylim=c(0,26)))
+```
+
+```{r}
+ensdb <- ah[["AH95713"]] # Drosophila EnsDb
+plotSignalTracks( files=tracks, region=peaks[1], extend=1000, tracks.params = list(ylim=c(0,26)),
+                  ensdb=ensdb, transcripts = "full")
+```
+
+```{r}
+plotSignalTracks( files=tracks, region="numb", ensdb=ensdb, transcripts = "full")
+```
+
+
+# Looking at multiple peaks
+
+```{r}
+tracks <- list(Myc="tracks/Myc.bw", Input="tracks/input.bw")
+sm <- epiwraps::signal2Matrix(filepaths = tracks, regions = peaks)
+plotEnrichedHeatmaps(sm)
+```
+
+
+## Computing signal relative to the input
+
+```{r}
+epiwraps::bam2bw("aligned/Myc.bam", bgbam="aligned/input.bam", 
+                 output_bw="tracks/Myc_relative.bw", binWidth=20, extend=100, scaling=TRUE)
+```
+
+To visualize this, we'll compare the original signal with the relative one:
+
+```{r}
+peakSignals <- signal2Matrix(c(Myc_raw="tracks/Myc.bw", Myc_relative="tracks/Myc_relative.bw", 
+                               input="tracks/input.bw"),
+                             regions=peaks, extend=2000, w=20)
+plotEnrichedHeatmaps(peakSignals[c(1,3)], scale_title="raw") + 
+  plotEnrichedHeatmaps(peakSignals[2], scale_title="normalized\nto input")
+```
+
+
+
+# Manipulating peaks
+
+```{r}
+peaks
+```
+
+
+## How many peaks overlap promoters
+
+```{r}
+txs <- transcripts(ensdb)
+proms <- promoters(txs, upstream=1000, downstream=500)
+head(proms)
+peaksOverlapsPromoters <- overlapsAny(peaks, proms)
+head(peaksOverlapsPromoters)
+table(peaksOverlapsPromoters)
+```
+
+Overlaps are not symmetrical:
+
+```{r}
+sum(peaksOverlapsPromoters)
+promotersOverlapPeaks <- overlapsAny(proms, peaks)
+sum(promotersOverlapPeaks)
+```
+
+
+## Basic peak annotation
+
+```{r}
+annotatedPeaks <- epiwraps::annotateRegions(peaks, ensdb)
+head(annotatedPeaks)
+```
+
+```{r}
+table(annotatedPeaks$class)
+hist(annotatedPeaks$distance2nearestTSS, breaks = 100)
+```
+If we want to extract the subset of peaks that are within promoters:
+
+```{r}
+peaks$overlapsPromoter <- overlapsAny(peaks, proms)
+peaksInPromoters <- peaks[peaks$overlapsPromoter]
+```
+
