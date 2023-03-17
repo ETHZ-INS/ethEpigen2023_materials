@@ -1,0 +1,140 @@
+---
+title: "Exploration of processed ChIP-seq data"
+author: "Pierre-Luc"
+output: html_document
+---
+
+```{r}
+suppressPackageStartupMessages({
+  library(AnnotationHub)
+  library(rtracklayer)
+  library(epiwraps)
+  library(GenomicRanges)
+})
+ah <- AnnotationHub()
+```
+
+
+# Downloading the processed data
+
+We will follow-up on what we did last week, starting with already aligned reads and peaks.
+To improve speed and so on, we'll work with a subset of the data on the chromosome 2L.
+
+You can download this data like this:
+
+```{r}
+download.file("https://ethz-ins.org/content/Myc_dm_subset.zip", "Myc_dm_subset.zip")
+unzip("Myc_dm_subset.zip")
+```
+
+
+# Visualizing a single region
+
+We can visualize the coverage around (+/- 2000bp) the first peak in the list like this:
+
+```{r}
+peaks <- rtracklayer::import("peaks/Myc_peaks.narrowPeak")
+plotSignalTracks(list(signal="aligned/Myc.bam", input="aligned/input.bam", peaks=peaks),
+                 region=peaks[1], extend=2000)
+```
+
+Here it looks like input has a signal than the IP, however this is because we're reading data from the alignment files, which aren't normalized (and there's a large difference in number of reads sequenced between IP and input).
+
+We could also include, in the plot, any gene in the area by including an EnsDb object:
+
+```{r}
+ensdb <- ah[["AH95713"]] # Drosophila EnsDb
+plotSignalTracks(list(signal="aligned/Myc.bam", input="aligned/input.bam", peaks=peaks),
+                 region=peaks[1], ensdb=ensdb, extend=2000)
+```
+
+Instead of specifying a region, when providing an EnsDb object we can also query a specific gene:
+
+```{r}
+ensdb <- ah[["AH95713"]] # Drosophila EnsDb
+plotSignalTracks(list(signal="aligned/Myc.bam", input="aligned/input.bam", peaks=peaks),
+                 region="numb", ensdb=ensdb, transcripts="full")
+```
+
+In order to get data normalized for sequencing depth, and to speed up querying the file (for instance if we want to look at many regions at the same time), we will now generate bigwig tracks for those two samples.
+
+# Generating coverage tracks
+
+Again here I'm providing two ways of doing this, first the non-R version that's the most widely used, and then a R-based version, both of which should be equivalent.
+
+## Using DeepTools
+
+
+```{bash engine.opts='-l'}
+mkdir -p tracks
+for bamfile in aligned/*.bam; do
+  bamCoverage -p 4 --binSize 20 --normalizeUsing CPM -b $bamfile -o tracks/`basename $bamfile .bam`.bw
+done
+```
+
+
+## Using R
+
+In this example I'll showcase the binning by generating two tracks (i.e. bigwigs) for the IP:
+
+```{r}
+dir.create("tracks")
+epiwraps::bam2bw("aligned/Myc.bam", "tracks/Myc_full.bw", binWidth=1, extend=100, scaling=TRUE)
+epiwraps::bam2bw("aligned/Myc.bam", "tracks/Myc.bw", binWidth=20, extend=100, scaling=TRUE)
+epiwraps::bam2bw("aligned/input.bam", "tracks/input.bw", binWidth=20, extend=100, scaling=TRUE)
+```
+
+# Looking at an example peak
+
+```{r}
+plotSignalTracks(list(full="tracks/Myc_full.bw", binned="tracks/Myc.bw", peaks=peaks), 
+                 region="numb", ensdb=ensdb)
+```
+
+If we zoom in around that peak, we see the difference between the two tracks:
+
+```{r}
+plotSignalTracks(list(full="tracks/Myc_full.bw", binned="tracks/Myc.bw", peaks=peaks), 
+                 region="2L:9436969-9437970", ensdb=ensdb)
+```
+
+Now comparing to the input:
+
+```{r}
+tracks <- list(Myc="tracks/Myc.bw", binned="tracks/input.bw", peaks=peaks)
+plotSignalTracks(tracks, region="numb", ensdb=ensdb)
+# if we want all tracks on the same scale:
+plotSignalTracks(tracks, region="numb", ensdb=ensdb, tracks.params=list(ylim=c(0,40)))
+```
+
+# Looking at multiple peaks
+
+```{r}
+peakSignals <- signal2Matrix(c(Myc="tracks/Myc.bw", input="tracks/input.bw"),
+                             regions=peaks, extend=2000, w=20)
+plotEnrichedHeatmaps(peakSignals)
+```
+
+## Computing signal relative to the input
+
+```{r}
+epiwraps::bam2bw("aligned/Myc.bam", bgbam="aligned/input.bam", 
+                 output_bw="tracks/Myc_relative.bw", binWidth=20, extend=100, scaling=TRUE)
+```
+
+To visualize this, we'll compare the original signal with the relative one:
+
+```{r}
+peakSignals <- signal2Matrix(c(Myc_raw="tracks/Myc.bw", Myc_relative="tracks/Myc_relative.bw", 
+                               input="tracks/input.bw"),
+                             regions=peaks, extend=2000, w=20)
+plotEnrichedHeatmaps(peakSignals[c(1,3)], scale_title="raw") + 
+  plotEnrichedHeatmaps(peakSignals[2], scale_title="normalized\nto input")
+```
+
+# Manipulating peaks
+
+# How many peaks overlap promoters
+
+# Basic peak annotation
+
