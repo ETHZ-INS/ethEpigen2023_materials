@@ -1,0 +1,30 @@
+---
+title: "week05"
+author: "Pierre-Luc"
+date: "2023/03/24"
+output: html_document
+---
+
+```{r}
+suppressPackageStartupMessages({
+  library(AnnotationHub)
+  library(ensembldb)
+  library(GenomicRanges)
+  library(epiwraps)
+  library(rtracklayer)
+  library(ggplot2)
+})
+ah <- AnnotationHub(localHub=TRUE)
+ensdb <- ah[["AH89211"]]
+```
+
+## Downloading the data
+
+Downloading peaks and signals for in Bruce mESC, reduced to chr1 to make things more lightweight:
+
+```{r, eval=FALSE}
+options(timeout=1800)
+download.file("https://ethz-ins.org/content/p300_subset.zip", "p300_subset.zip")
+unzip("p300_subset.zip")
+```
+
