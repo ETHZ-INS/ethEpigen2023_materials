@@ -28,3 +28,57 @@ download.file("https://ethz-ins.org/content/p300_subset.zip", "p300_subset.zip")
 unzip("p300_subset.zip")
 ```
 
+## Overlaps between peaks
+
+```{r}
+# to read a single peak file:
+# peaks <- rtracklayer::import("peaks/H3K27ac.bed", format="narrowPeak")
+# to read several peak files:
+# first list the files:
+peakfiles <- list.files("peaks", full.names = TRUE)
+# then give them meaningful names
+names(peakfiles) <- gsub("\\.bed","",basename(peakfiles))
+# then loop through them and read them:
+peaks <- lapply(peakfiles, FUN=rtracklayer::import, format="narrowPeak")
+peaks
+```
+
+```{r}
+lapply(peaks, FUN=function(x) sum(overlapsAny(peaks$p300, x)))
+```
+
+```{r}
+regionOverlaps(peaks)
+regionUpset(peaks, nsets=length(peaks))
+```
+```{r}
+regionUpset(peaks, reference = peaks$p300, nsets=length(peaks))
+```
+
+## Visualizing the p300 regions
+
+```{r}
+bwfiles <- list.files("tracks", full.names = TRUE)
+# then give them meaningful names
+names(bwfiles) <- gsub("\\.bw","",basename(bwfiles))
+
+sm <- signal2Matrix(bwfiles, regions=peaks$p300)
+plotEnrichedHeatmaps(sm)
+plotEnrichedHeatmaps(sm, trim = 0.95)
+plotEnrichedHeatmaps(lapply(sm, log1p))
+plotEnrichedHeatmaps(sm, scale_rows = "global", trim=0.95)
+
+plotEnrichedHeatmaps(sm)
+```
+
+We try a quick approximative normalization method:
+
+```{r}
+plotEnrichedHeatmaps(epiwraps::renormalizeBorders(sm), trim = 0.95)
+```
+
+```{r}
+sm2 <- signal2Matrix(bwfiles, regions=reduce(unlist(GRangesList(peaks))))
+plotEnrichedHeatmaps(renormalizeBorders(sm2), trim=0.97, scale_rows = "global")
+```
+
