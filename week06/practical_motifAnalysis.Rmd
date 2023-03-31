@@ -1,6 +1,6 @@
 ---
+title: "Working with DNA motifs"
 author: "Pierre-Luc"
-date: "3/31/2022"
 output: html_document
 ---
 
@@ -29,9 +29,10 @@ Download:
 ```{r}
 download.file("https://www.encodeproject.org/files/ENCFF508CKL/@@download/ENCFF508CKL.bed.gz", "mESC_CTCF_ENCFF508CKL.bed.gz")
 peaks <- rtracklayer::import("mESC_CTCF_ENCFF508CKL.bed.gz", format="NarrowPeak")
-seqlevelsStyle(peaks) <- "Ensembl"
+seqlevelsStyle(peaks) <- "Ensembl"  # to change the convention of the chromosome names to ensembl (i.e. without 'chr')
 peaks_chr1 <- peaks[seqnames(peaks)=="1"]
 ```
+
 
 
 Since the motif of a transcription factor is typically found towards the center or summit of the peak, it is common practice to look for motifs around the center of peaks. 
@@ -46,7 +47,9 @@ genome <- ah[["AH68356"]]
 
 # we get the sequences corresponding to the peak centers:
 peak_seqs <- memes::get_sequence(peak_centers, genome)
+# peak_seqs <- Biostrings::getSeq(genome, peak_centers)
 peak_seqs
+as.character(peak_seqs[1])
 ```
 
 
@@ -76,6 +79,7 @@ view_motifs(motif)
 moi <- memes::runFimo(peak_seqs,  convert_motifs(motif))
 # you might eventually need to add the meme_path argument:
 moi <- memes::runFimo(peak_seqs,  convert_motifs(motif), meme_path = "/home/plger/bin/")
+head(moi)
 ```
 
 
@@ -88,10 +92,24 @@ Biostrings::writeXStringSet(rtracklayer::import(genome), "genome.fa")
 motif2 <- convert_motifs(motif, class="TFBSTools-PFMatrix")
 # if we had a list of motifs instead, we'd convert them like this:
 # motifs2 <- setNames(do.call(PFMatrixList, convert_motifs(motifs, class="TFBSTools-PFMatrix")), names(motifs))
-moi2 <- matchMotifs(motif2, subject=peaks_centers, genome=Rsamtools::FaFile("genome.fa"), out="positions")[[1]]
+moi2 <- motifmatchr::matchMotifs(motif2, subject=peak_centers, genome=Rsamtools::FaFile("genome.fa"), out="positions")[[1]]
+head(moi2)
 ```
 
 
+```{r}
+epiwraps::regionUpset(list(fimo=moi, motifmatchr=moi2))
+boxplot(moi$score~overlapsAny(moi, moi2))
+```
+
+
+```{r}
+# peaks with motif:
+peaks_w_motif <- peaks_chr1[overlapsAny(peaks_chr1,moi)]
+length(peaks_w_motif)
+length(peaks_chr1)
+length(peaks_w_motif)/length(peaks_chr1)
+```
 
 
 
@@ -150,7 +168,7 @@ I'm giving you example code here, but since this is a computationally-intensive 
 # this requires having the meme suite installed
 mr <- memes::runMeme( peak_seqs,
                       p=4, # use 4 threads
-                      nmotifs=5, # determines how many motifs Meme will try to find
+                      nmotifs=5, # determines how many motifs Meme will try to find\
                       meme_path = "/home/plger/bin/") # depending on your setup, you might need to specify where the meme binaries were installed
 
 # we could also specify a background using the `neg` argument, i.e. instead of 
