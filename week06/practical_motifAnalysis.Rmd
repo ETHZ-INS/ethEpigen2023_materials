@@ -160,6 +160,27 @@ length(peaks_w_motif)/length(peaks_chr1)
 ```
 
 
+## Scanning the whole genome
+
+To scan the whole genome, one needs to use the genome sequence as input subject.
+For example, using `motifmatchr::matchMotif` :
+
+```{r}
+# import the genome sequence:
+genome_seqs <- import(genome)
+# if your genome was a fasta file instead, import using Biostrings::readDNAStringSet()
+
+# run the scan:
+motif2 <- convert_motifs(motif, class="TFBSTools-PFMatrix")
+motif_across_genome <- matchMotifs(motif2, subject=genome_seqs, out="positions")[[1]]
+# when inputing matchMotifs directly with sequences, one has to do the following 
+# to transform the output to GRanges:
+names(motif_across_genome) <- names(genome_seqs)
+motif_across_genome <- as(motif_across_genome, "GRanges")
+head(motif_across_genome)
+```
+
+
 
 
 # Motif enrichment analysis
