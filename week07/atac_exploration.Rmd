@@ -104,14 +104,14 @@ plotEnrichedHeatmaps(sm, trim=0.95)
 
 # we renormalize using border backgrounds
 smb <- renormalizeBorders(sm)
-plotEnrichedHeatmaps(smb, trim=0.95)
+plotEnrichedHeatmaps(smb, trim=0.95, colors = c("white","darkred"), minRowVal = 20)
 
 # the right to do this, however, is using a background normalization
 # this we can do for instance using:
-nf <- bwNormFactors(tracks, wsize=5L, useSeqLevels="19", nwind=5000L)
+nf <- bwNormFactors(tracks, useSeqLevels="19", nwind=5000L)
 # then we apply the normalization factors:
 smb <- rescaleSignalMatrices(sm, nf)
-plotEnrichedHeatmaps(sm, trim=0.95)
+plotEnrichedHeatmaps(smb, trim=0.95, minRowVal = 15, colors = c("white","darkred"))
 ```
 
 
@@ -120,13 +120,14 @@ plotEnrichedHeatmaps(sm, trim=0.95)
 We could use our standard functions:
 
 ```{r}
-d <- meltSignals(smb[c("Cuts", "Mono centers")])
+d <- meltSignals(smb[c("NF cuts", "Mono centers")])
 ggplot(d, aes(position, mean, colour=sample)) + geom_line(size=1.2)
 ```
 Or we could use a specialized function from the ATACseqQC package:
 
 ```{r}
-motifFootprint("atac.chr19.bam", motif, moi)
+library(ATACseqQC)
+epiwraps::motifFootprint("atac.chr19.bam", motif, moi)
 ```
 
 ## Signal around TSS
@@ -138,9 +139,9 @@ We could also look at the pattern around the TSS
 txs <- transcripts(ensdb, filter=TxBiotypeFilter("protein_coding"))
 txs <- txs[seqnames(txs)=="19"]
 tss <- promoters(txs, upstream=0, downstream=1)
-tss.sm <- signal2Matrix(tracks, granges(tss), w=5, extend=500)
+tss.sm <- signal2Matrix(tracks, granges(tss), w=5, extend=3000)
 tss.smb <- rescaleSignalMatrices(tss.sm, nf)
-plotEnrichedHeatmaps(tss.smb, trim=0.95)
+plotEnrichedHeatmaps(tss.smb, trim=0.95, colors=c("white","darkred"))
 ```
 
 
