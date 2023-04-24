@@ -1,5 +1,8 @@
 # Assignment
 
-Instructions to come!
+In the same dataset of ATAC on chr19, plot the insertion (i.e. ‘cuts’) profile of, respectively, nucleosome-free and nucleosome-containing fragments, around the high-confidence motifs of two factors.
+You can choose your own factors of interest, or for instance use KLF4 and MAZ.
 
-Save your assignment in a R markdown named , render it, and push both the  and  files to this folder in your github repository
+Expected form of the answer: 2 figures (one for each factor), each containing the two signals around the motifs
+
+Don't forget to render your markdown and push it as `assignment.html` !
