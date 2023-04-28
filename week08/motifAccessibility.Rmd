@@ -1,0 +1,54 @@
+---
+title: "ATAC-seq exploration practical"
+author: "Pierre-Luc"
+date: "2023/04/21"
+output: html_document
+---
+
+```{r}
+suppressPackageStartupMessages({
+  library(epiwraps)
+  library(motifmatchr)
+  library(MotifDb)
+  library(universalmotif)
+  library(sechm)
+  library(BiocParallel)
+  library(ggplot2)
+  library(chromVAR) # for motif accessibility estimation
+  library(SummarizedExperiment) # data structure
+  library(limma) # for statistical analysis
+
+})
+# to control multithreading, unix users can use:
+# register(MulticoreParam(4))
+# for windows users, rather one of the following:
+register(SerialParam())
+# register(SnowParam(2))
+```
+
+
+## Download the data
+
+```{r, eval=FALSE}
+download.file("https://ethz-ins.org/content/dex.chr1.zip", "dex.chr1.zip", mode="wb")
+unzip("dex.chr1.zip")
+# if you don't 
+download.file("https://ethz-ins.org/content/hg38.chr1.zip", "hg38.chr1.zip", mode="wb")
+unzip("hg38.chr1.zip")
+```
+
+## Get the database of motifs
+
+```{r}
+motifs <- query(MotifDb, c("HOCOMOCOv11-core", "Hsapiens"))
+motifs <- do.call(TFBSTools::PWMatrixList, setNames(
+           universalmotif::convert_motifs(motifs, class="TFBSTools-PWMatrix"),
+           mcols(motifs)$geneSymbol))
+```
+
+
+```{r}
+# preparing the genome sequence file (here just using a subset)
+genome <- Rsamtools::FaFile("hg38.chr1.fa")
+```
+
