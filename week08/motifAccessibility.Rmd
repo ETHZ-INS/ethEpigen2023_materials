@@ -17,12 +17,11 @@ suppressPackageStartupMessages({
   library(chromVAR) # for motif accessibility estimation
   library(SummarizedExperiment) # data structure
   library(limma) # for statistical analysis
-
 })
 # to control multithreading, unix users can use:
-# register(MulticoreParam(4))
+register(MulticoreParam(4))
 # for windows users, rather one of the following:
-register(SerialParam())
+# register(SerialParam())
 # register(SnowParam(2))
 ```
 
@@ -30,9 +29,10 @@ register(SerialParam())
 ## Download the data
 
 ```{r, eval=FALSE}
+options(timeout=6000)
 download.file("https://ethz-ins.org/content/dex.chr1.zip", "dex.chr1.zip", mode="wb")
 unzip("dex.chr1.zip")
-# if you don't 
+# if you don't the human genome yet:
 download.file("https://ethz-ins.org/content/hg38.chr1.zip", "hg38.chr1.zip", mode="wb")
 unzip("hg38.chr1.zip")
 ```
@@ -50,5 +50,85 @@ motifs <- do.call(TFBSTools::PWMatrixList, setNames(
 ```{r}
 # preparing the genome sequence file (here just using a subset)
 genome <- Rsamtools::FaFile("hg38.chr1.fa")
+```
+
+1. get the fragment counts for each peak in each sample
+  --> add GC bias
+2. get the occurence of each motif in each peak 
+3. use 1 and 2 to obtain aggregated motif score per sample
+
+```{r}
+# get a list of the bam files for the different samples
+bams <- list.files(pattern="bam$")
+names(bams) <- gsub("\\.bam","",bams)
+bams
+```
+
+```{r}
+# get the peaks
+peak <- rtracklayer::import("peaks.narrowPeak")
+se <- chromVAR::getCounts(alignment_files = bams, peaks = peak, paired = FALSE)
+
+se
+colData(se)$condition <- c("CTRL","CTRL","DEX","DEX")
+se$condition <- c("CTRL","CTRL","DEX","DEX")
+colData(se)
+rowRanges(se)$test <- 3
+rowRanges(se)
+
+# fetch an assay, all equivalent in this case:
+head(assay(se)) # if I want the first
+head(assays(se)$counts)
+head(assay(se, "counts"))
+```
+
+```{r}
+se <- chromVAR::addGCBias(se, genome=genome)
+```
+
+```{r}
+# we find which peaks contain which motifs
+# we don't use `out="positions"` 
+moi <- motifmatchr::matchMotifs(motifs, subject=se, genome=genome)
+
+
+dev <- chromVAR::computeDeviations(object = se, annotations=moi,
+                                   background_peaks=getBackgroundPeaks(se, niterations=1000))
+dev
+colData(dev)
+
+variability <- computeVariability(dev)
+plotVariability(variability)
+```
+
+```{r}
+head(assays(dev)$z)
+assays(dev)$norm <- scale(assays(dev)$z)
+dev
+```
+
+# Differential analysis
+
+```{r}
+dev$condition
+# if needed, we can specify the baseline condition, by default it's the first in alphabetical order
+dev$condition <- factor(dev$condition)
+dev$condition <- relevel(dev$condition, "CTRL")
+mm <- model.matrix(~dev$condition)
+# equivalent:
+mm <- model.matrix(~condition, data=as.data.frame(colData(dev)))
+mm
+```
+
+```{r}
+fit <- eBayes(lmFit(assays(dev)$norm, mm))
+res <- as.data.frame(topTable(fit, coef="conditionDEX", number = Inf))
+head(res)
+
+res$TF <- row.names(res)
+ggplot(res, aes(logFC, -log10(adj.P.Val), label=TF)) + geom_text() 
+```
+```{r}
+sechm(dev, features = head(row.names(res)), assayName="norm", top_annotation = c("condition", "depth"))
 ```
 
