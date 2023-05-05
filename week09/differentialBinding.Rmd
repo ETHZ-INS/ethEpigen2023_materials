@@ -1,0 +1,122 @@
+---
+title: "Week 9 - Differential binding analysis"
+output: html_document
+---
+
+```{r}
+suppressPackageStartupMessages({
+  library(GenomicRanges)
+  library(chromVAR)
+  library(SummarizedExperiment)
+  library(edgeR)
+  library(epiwraps)
+  library(ggplot2)
+})
+```
+
+
+Here we'll work with only a subset of the data from the GDVS paper, namely the ChIPseq from just 2 mutant lines (deletions) and 2 controls.
+
+## Downloading the data
+
+```{r, eval=FALSE}
+download.file("https://ethz-ins.org/content/yy1.chr9.zip", "yy1.chr9.zip", mode="wb")
+unzip("yy1.chr9.zip")
+```
+
+
+## Getting a consensus set of windows
+
+```{r}
+peaks <- list.files("peaks",full=TRUE)
+names(peaks) <- gsub("\\.narrowPeak","",basename(peaks))
+peaks <- lapply(peaks, FUN=rtracklayer::import)
+
+merged_peaks <- reduce(unlist(GRangesList(peaks)))
+```
+
+Note that a good alternative to get consensus peaks across samples is to merge the reads from all samples, and call peaks on that.
+
+## Getting the counts per peak
+
+```{r}
+bams <- list.files("aligned/",pattern="bam$", full=TRUE)
+se <- chromVAR::getCounts(bams, peaks=merged_peaks, paired=FALSE)
+colnames(se) <- gsub("\\.bam","",basename(bams))
+# we set the conditions:
+se$condition <- c("CTRL","CTRL","DEL","DEL")
+```
+
+## Standard differential analysis with edgeR
+
+```{r}
+row.names(se) <- as.character(granges(se))
+dds <- DGEList(assay(se), group=se$condition)
+dds <- calcNormFactors(dds)
+dds <- estimateDisp(dds)
+
+et <- as.data.frame(topTags(exactTest(dds), Inf))
+
+# # note that we could use the formula interface to specify the model:
+# mm <- model.matrix(~condition, data=as.data.frame(colData(se)))
+# fit <- glmQLFit(dds, mm)
+# res <- as.data.frame(topTags(glmQLFTest(fit)))
+# # however, for simple 2-group comparisons in edgeR the exact test above is normally a tiny bit more accurate
+```
+
+Quick look at the results:
+
+```{r}
+head(et)
+ggplot(et, aes(logFC, -log10(FDR))) + geom_point()
+```
+
+If you think back to the biology of the dataset we are analyzing, does anything look odd to you?
+
+## Testing alternative normalization methods
+
+### Normalization based on library size
+
+```{r}
+dds$samples$norm.factors <- 1
+dds <- estimateDisp(dds)
+et <- as.data.frame(topTags(exactTest(dds), Inf))
+ggplot(et, aes(logFC, -log10(FDR))) + geom_point()
+```
+
+### Normalization based on common peaks
+
+```{r}
+nf.ma <- epiwraps:::getNormFactors(bams, peaks=peaks, method="MAnorm")
+dds$samples$norm.factors <- nf.ma
+dds$samples$lib.size <- 1
+dds <- estimateDisp(dds)
+et <- as.data.frame(topTags(exactTest(dds), Inf))
+ggplot(et, aes(logFC, -log10(FDR))) + geom_point()
+```
+
+### Background normalization
+
+```{r}
+nf.bg <- epiwraps:::getNormFactors(bams, method="background")
+dds$samples$norm.factors <- nf.bg
+dds$samples$lib.size <- 1
+dds <- estimateDisp(dds)
+et <- as.data.frame(topTags(exactTest(dds), Inf))
+ggplot(et, aes(logFC, -log10(FDR))) + geom_point()
+```
+
+
+## Looking at the top differentially-bound peaks
+
+```{r}
+tracks <- list.files("tracks/", full=TRUE)
+sm <- signal2Matrix(tracks, rowRanges(se))
+nf <- getNormFactors(tracks, peaks=peaks)
+plotEnrichedHeatmaps(rescaleSignalMatrices(sm, nf))
+
+# just the most significant regions
+sm <- signal2Matrix(tracks, as(head(row.names(et),20),"GRanges"))
+plotEnrichedHeatmaps(rescaleSignalMatrices(sm, nf))
+```
+
