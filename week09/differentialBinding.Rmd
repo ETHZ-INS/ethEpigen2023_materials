@@ -59,6 +59,7 @@ et <- as.data.frame(topTags(exactTest(dds), Inf))
 
 # # note that we could use the formula interface to specify the model:
 # mm <- model.matrix(~condition, data=as.data.frame(colData(se)))
+# dds <- estimateDisp(dds, mm)
 # fit <- glmQLFit(dds, mm)
 # res <- as.data.frame(topTags(glmQLFTest(fit)))
 # # however, for simple 2-group comparisons in edgeR the exact test above is normally a tiny bit more accurate
@@ -87,7 +88,7 @@ ggplot(et, aes(logFC, -log10(FDR))) + geom_point()
 ### Normalization based on common peaks
 
 ```{r}
-nf.ma <- epiwraps:::getNormFactors(bams, peaks=peaks, method="MAnorm")
+nf.ma <- getNormFactors(bams, peaks=peaks, method="MAnorm")
 dds$samples$norm.factors <- nf.ma
 dds$samples$lib.size <- 1
 dds <- estimateDisp(dds)
@@ -98,11 +99,13 @@ ggplot(et, aes(logFC, -log10(FDR))) + geom_point()
 ### Background normalization
 
 ```{r}
-nf.bg <- epiwraps:::getNormFactors(bams, method="background")
+set.seed(123)
+nf.bg <- epiwraps::getNormFactors(bams, method="background")
 dds$samples$norm.factors <- nf.bg
 dds$samples$lib.size <- 1
 dds <- estimateDisp(dds)
 et <- as.data.frame(topTags(exactTest(dds), Inf))
+head(et)
 ggplot(et, aes(logFC, -log10(FDR))) + geom_point()
 ```
 
@@ -111,9 +114,12 @@ ggplot(et, aes(logFC, -log10(FDR))) + geom_point()
 
 ```{r}
 tracks <- list.files("tracks/", full=TRUE)
+tracks
 sm <- signal2Matrix(tracks, rowRanges(se))
-nf <- getNormFactors(tracks, peaks=peaks)
-plotEnrichedHeatmaps(rescaleSignalMatrices(sm, nf))
+nf <- getNormFactors(tracks)
+nf.ma <- getNormFactors(tracks, peaks = peaks, method = "MAnorm")
+plotEnrichedHeatmaps(sm)
+plotEnrichedHeatmaps(rescaleSignalMatrices(sm, nf.ma))
 
 # just the most significant regions
 sm <- signal2Matrix(tracks, as(head(row.names(et),20),"GRanges"))
