@@ -35,11 +35,83 @@ regions <- rtracklayer::import.bed("regions.bed")
 
 ```{r}
 ml <- signal2Matrix(tracks, regions, extend=2000)
-
-# we could do extra normalization if needed
-# nf <- getNormFactors(tracks, useSeqLevels="chr1")
-# ml <- rescaleSignalMatrices(ml, scaleFactors=nf)
-
+set.seed(123)  # to ensure that it gives the same results everytime
+nf <- getNormFactors(tracks, useSeqLevels="chr1")
+ml2 <- rescaleSignalMatrices(ml, scaleFactors=nf)
 plotEnrichedHeatmaps(ml)
+```
+
+## Clustering
+
+```{r}
+set.seed(123)  # to ensure that it gives the same results everytime
+cl <- clusterSignalMatrices(ml, k=4)
+table(cl)
+head(cl)
+length(cl)
+length(regions)
+
+regions$cluster <- cl
+```
+
+Plotting the clusters:
+
+```{r}
+plotEnrichedHeatmaps(ml, row_split=cl, trim=0.99, colors=c("white","darkred"))
+```
+
+```{r}
+cl2 <- clusterSignalMatrices(ml, k=2:10)
+ggplot(cl2$varExplained, aes(k, varExplained)) + geom_line()
+```
+
+
+
+Adding colors:
+
+```{r}
+mycolors <- c("1"="red", "2"="blue", "3"="darkgreen", "4"="black")
+plotEnrichedHeatmaps(ml, row_split=cl, mean_color=mycolors)
+```
+
+Plotting just the averages:
+
+```{r}
+d <- meltSignals(ml, splitBy=cl)
+ggplot(d, aes(position, mean, colour=sample)) + geom_line(size=1.2) + facet_wrap(~split)
+```
+
+
+Clustering using relative signal instead:
+
+```{r}
+cl <- clusterSignalMatrices(ml, k=4, scaleRows = TRUE)
+d <- meltSignals(ml, splitBy=cl)
+ggplot(d, aes(position, mean, colour=sample)) + geom_line() + facet_wrap(~split)
+plotEnrichedHeatmaps(ml, row_split = cl, scale_rows = "global")
+```
+
+
+## Enrichment analysis
+
+Find what's enriched in one cluster with respect to the others:
+
+```{r}
+# we first split the regions by cluster:
+split_regions <- split(regions, cl)
+
+# we send the data to the GREAT server to run an enrichment analysis
+job <- submitGreatJob(gr=split_regions[["4"]], bg=regions, species="mm10")
+res <- getEnrichmentTables(job)
+names(res)
+```
+
+We plot the top Biological Processes:
+
+```{r, fig.width=9, fig.height=6}
+bp <- res$`GO Biological Process`
+head(bp)
+
+ggplot(head(bp,15), aes(Hyper_Fold_Enrichment, reorder(name, Hyper_Adjp_BH), size=Hyper_Foreground_Region_Hits, color=-log10(Hyper_Adjp_BH))) + geom_point() + scale_color_viridis_c()
 ```
 
