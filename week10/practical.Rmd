@@ -1,0 +1,45 @@
+---
+title: "Clustering and enrichment analysis"
+author: "Pierre-Luc"
+output: html_document
+---
+
+```{r}
+suppressPackageStartupMessages({
+  library(GenomicRanges)
+  library(epiwraps)
+  library(ggplot2)
+  library(rGREAT)
+})
+```
+
+Today we're going to work on ChIP-seq of 2 TFs and 2 histone modifications in a mouse cancer line (all restricted to chr1).
+
+## Download the data
+
+```{r, eval=FALSE}
+options(timeout = 6000)
+download.file("https://ethz-ins.org/content/w10.practical.zip", "w10.practical.zip")
+unzip("w10.practical.zip")
+list.files()
+```
+
+## Prepare the regions and the tracks
+
+```{r}
+tracks <- list.files(pattern="bw$")
+regions <- rtracklayer::import.bed("regions.bed")
+```
+
+## Plot
+
+```{r}
+ml <- signal2Matrix(tracks, regions, extend=2000)
+
+# we could do extra normalization if needed
+# nf <- getNormFactors(tracks, useSeqLevels="chr1")
+# ml <- rescaleSignalMatrices(ml, scaleFactors=nf)
+
+plotEnrichedHeatmaps(ml)
+```
+
