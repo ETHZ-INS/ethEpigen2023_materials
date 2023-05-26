@@ -1,0 +1,135 @@
+---
+title: "Using long-range interactions to annotate peaks"
+author: "Pierre-Luc"
+output: html_document
+---
+
+```{r}
+suppressPackageStartupMessages({
+  library(GenomicRanges)
+  library(AnnotationHub)
+  library(ensembldb)
+  library(InteractionSet)
+})
+```
+
+## Obtain the data
+
+```{r}
+# p300 peaks in A549 cells:
+download.file("https://www.encodeproject.org/files/ENCFF776TFX/@@download/ENCFF776TFX.bed.gz", "p300.narrowPeak.gz")
+# Hi-C long-range interactions in A549 cells:
+download.file("https://www.encodeproject.org/files/ENCFF803ZOW/@@download/ENCFF803ZOW.tsv", "interactions.tsv")
+```
+
+Load the interaction data, and form an GInteractions object:
+
+```{r}
+hic <- read.delim("interactions.tsv")
+head(hic)
+anchor1 <- GRanges(hic$chr1, IRanges(hic$x1, hic$x2))
+anchor2 <- GRanges(hic$chr2, IRanges(hic$y1, hic$y2))
+gi <- GInteractions(anchor1, anchor2, observed=hic$observed)
+seqlevelsStyle(gi) <- "ensembl"
+gi
+```
+```{r}
+first(gi)
+```
+
+
+
+Load the peaks:
+
+```{r}
+peaks <- rtracklayer::import("p300.narrowPeak.gz")
+seqlevelsStyle(peaks) <- "ensembl"
+```
+
+## Link genomic interactions to TSS
+
+We'll need this function:
+
+```{r}
+#' gi2targets: get distal element to TSS annotations from a GInteractions object
+#'
+#' @param gi a GInteractions object
+#' @param proms Either an EnsDb object, or a GRanges of promoters with the 
+#'   `gene_name` metadata column.
+#'
+#' @return A GRanges object
+gi2targets <- function(gi, proms){
+  stopifnot(is(gi, "GInteractions"))
+  if(is(proms, "GRanges")){
+    stopifnot(!is.null(proms$gene_name))
+    seqlevelsStyle(proms) <- "ensembl"
+    proms <- proms[proms$gene_name!=""]
+  }else if(is(proms, "EnsDb")){
+    # obtain the promoters
+    proms <- trim(suppressWarnings(promoters(
+      transcripts(ensdb, columns=c("gene_name")),
+      upstream=100,downstream=50)))
+    proms <- proms[proms$gene_name!=""]
+  }else{
+    stop("Unrecognized `proms` format")
+  }
+  seqlevelsStyle(gi) <- "ensembl"
+  # find overlaps between first anchor and promoters
+  o <- as.data.frame(findOverlaps(first(gi), proms))
+  o$gene <- proms$gene_name[o$subjectHits]
+  o <- o[!duplicated(o[,c(1,3)]),]
+  o1 <- splitAsList(o$gene, o$queryHits)
+  # find overlaps between second anchor and promoters
+  o <- as.data.frame(findOverlaps(second(gi), proms))
+  o$gene <- proms$gene_name[o$subjectHits]
+  o <- o[!duplicated(o[,c(1,3)]),]
+  o2 <- splitAsList(o$gene, o$queryHits)
+  # merge anchors with an overlap in the mate anchor
+  hic2 <- c( first(gi)[as.numeric(names(o2))], second(gi)[as.numeric(names(o1))] )
+  # add target gene
+  hic2$gene <- c(o2,o1)
+  sort(hic2)
+}
+```
+
+We first obtain the gene annotation (takes a long time if you don't already have the annotation):
+
+```{r, eval=FALSE}
+ah <- AnnotationHub()
+ensdb <- ah[["AH95744"]] # human ensembl 104 annotation
+```
+
+As a shortcut, if you don't want to wait for the annotation to download, you can download and use these promoters:
+
+```{r}
+download.file("https://ethz-ins.org/content/hgEns104.promoters.rds", "promoters.rds")
+proms <- readRDS("promoters.rds")
+```
+
+
+We then use the function to link distal regions to the gene(s) whose TSS they are in contact with:
+
+```{r}
+gi2 <- gi2targets(gi, ensdb)  # or gi2 <- gi2targets(gi,proms)
+gi2
+
+```
+
+## Checking distal targets of peaks
+
+```{r}
+# find overlaps
+o <- findOverlaps(peaks, gi2)
+head(o)
+
+# add target genes to the peaks
+mcols(peaks)[from(o),"target"] <- gi2[to(o)]$gene
+mcols(peaks)$target <- CharacterList(mcols(peaks)$target)
+# look at the output
+peaks
+```
+
+
+### Working with AtomicLists
+
+Since one distal region can be in contact with multiple targets, the target column can contain multiple genes. In this case, we encode this using a `CharacterList` object, an extension of the `AtomicList` object, which is a powerful way of dealing with lists of atomic elements in R.
